@@ -7,6 +7,41 @@ from rdkit import DataStructs
 from .utils import ppm_window
 import ast
 
+
+def _parse_masses(value) -> List[float]:
+    """Return a list of numeric masses from a DB5 mass cell.
+
+    Handles scalars, lists/tuples, and stringified lists. Invalid entries return
+    an empty list.
+    """
+
+    def _coerce(v):
+        try:
+            return float(v)
+        except Exception:
+            return None
+
+    if value is None:
+        return []
+    if isinstance(value, (int, float)):
+        mass = _coerce(value)
+        return [mass] if mass is not None else []
+    if isinstance(value, (list, tuple, np.ndarray)):
+        return [m for m in (_coerce(v) for v in value) if m is not None]
+    if isinstance(value, str):
+        stripped = value.strip()
+        # Strings like "[107.04, 131.05]" should be treated as a list of masses
+        if stripped.startswith("[") and stripped.endswith("]"):
+            try:
+                parsed = ast.literal_eval(stripped)
+                if isinstance(parsed, (list, tuple)):
+                    return [m for m in (_coerce(v) for v in parsed) if m is not None]
+            except Exception:
+                return []
+        mass = _coerce(stripped)
+        return [mass] if mass is not None else []
+    return []
+
 def compute_morgan_fp_bits(smiles: str, radius=2, n_bits=2048):
     if not isinstance(smiles, str):
         return None
@@ -85,10 +120,11 @@ def retrieve_candidate_dict(
     mass_col, fingerprint_col, smiles_col, inchikey_col, name_col, formula_col = find_db5_columns(db5)
     if mass_col is None or (fingerprint_col is None and smiles_col is None):
         return {}
+    mass_lists = db5[mass_col].apply(_parse_masses)
     mask = np.zeros(len(db5), dtype=bool)
     for m in masses:
         lo, hi = ppm_window(m, ppm)
-        mask |= db5[mass_col].astype(float).between(lo, hi)
+        mask |= mass_lists.apply(lambda vals: any(lo <= v <= hi for v in vals)).to_numpy()
     sub = db5.loc[mask].copy()
     out = {}
     for _, row in sub.iterrows():
