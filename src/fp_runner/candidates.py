@@ -1,10 +1,46 @@
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Optional
 import numpy as np
 import pandas as pd
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit import DataStructs
 from .utils import ppm_window
+import ast
+
+
+def _parse_masses(value) -> List[float]:
+    """Return a list of numeric masses from a DB5 mass cell.
+
+    Handles scalars, lists/tuples, and stringified lists. Invalid entries return
+    an empty list.
+    """
+
+    def _coerce(v):
+        try:
+            return float(v)
+        except Exception:
+            return None
+
+    if value is None:
+        return []
+    if isinstance(value, (int, float)):
+        mass = _coerce(value)
+        return [mass] if mass is not None else []
+    if isinstance(value, (list, tuple, np.ndarray)):
+        return [m for m in (_coerce(v) for v in value) if m is not None]
+    if isinstance(value, str):
+        stripped = value.strip()
+        # Strings like "[107.04, 131.05]" should be treated as a list of masses
+        if stripped.startswith("[") and stripped.endswith("]"):
+            try:
+                parsed = ast.literal_eval(stripped)
+                if isinstance(parsed, (list, tuple)):
+                    return [m for m in (_coerce(v) for v in parsed) if m is not None]
+            except Exception:
+                return []
+        mass = _coerce(stripped)
+        return [mass] if mass is not None else []
+    return []
 
 def compute_morgan_fp_bits(smiles: str, radius=2, n_bits=2048):
     if not isinstance(smiles, str):
@@ -19,9 +55,14 @@ def compute_morgan_fp_bits(smiles: str, radius=2, n_bits=2048):
 
 def find_db5_columns(df: pd.DataFrame):
     mass_col = None
-    for c in ["MonoisotopicMass", "MONOISOTOPIC_MASS", "ExactMass", "EXACT_MASS", "AverageMass"]:
+    for c in ["monoisotopic_mass", "MonoisotopicMass", "MONOISOTOPIC_MASS", "ExactMass", "EXACT_MASS", "AverageMass"]:
         if c in df.columns:
             mass_col = c
+            break
+    fingerprint_col = None
+    for c in ["fingerprint", "Fingerprint", "fp_bits", "fp"]:
+        if c in df.columns:
+            fingerprint_col = c
             break
     smiles_col = None
     for c in ["CANONICAL_SMILES", "canonical_smiles", "SMILES"]:
@@ -39,32 +80,73 @@ def find_db5_columns(df: pd.DataFrame):
             name_col = c
             break
     formula_col = None
-    for c in ["Formula", "molecularFormula", "MOLECULAR_FORMULA"]:
+    for c in ["formula", "Formula", "molecularFormula", "MOLECULAR_FORMULA"]:
         if c in df.columns:
             formula_col = c
             break
-    return mass_col, smiles_col, inchikey_col, name_col, formula_col
+    return mass_col, fingerprint_col, smiles_col, inchikey_col, name_col, formula_col
+
+def _decode_fingerprint(value) -> Optional[List[int]]:
+    """Decode a stored fingerprint (sparse list of 1 positions) into dense bits."""
+    if value is None:
+        return None
+    try:
+        if isinstance(value, (list, tuple, np.ndarray)):
+            indices = [int(v) for v in value]
+        else:
+            parsed = ast.literal_eval(str(value))
+            if not isinstance(parsed, (list, tuple)):
+                return None
+            indices = [int(v) for v in parsed]
+    except Exception:
+        return None
+
+    max_idx = max(indices) if indices else -1
+    dense = [0] * (max_idx + 1 if max_idx >= 0 else 0)
+    for idx in indices:
+        if idx >= 0:
+            dense[idx] = 1
+    return dense
 
 def retrieve_candidate_dict(
     db5: pd.DataFrame,
     masses: List[float],
-    ppm: float
+    ppm: float,
+    *,
+    selected_fp_idx: Optional[List[int]] = None,
+    fp_filter_idx: Optional[List[int]] = None,
 ) -> Dict[Tuple[str, str, str], List[int]]:
     """Return map: (CompoundName, InChIKey, Formula) -> fingerprint bits list."""
-    mass_col, smiles_col, inchikey_col, name_col, formula_col = find_db5_columns(db5)
-    if mass_col is None or smiles_col is None:
+    mass_col, fingerprint_col, smiles_col, inchikey_col, name_col, formula_col = find_db5_columns(db5)
+    if mass_col is None or (fingerprint_col is None and smiles_col is None):
         return {}
+    mass_lists = db5[mass_col].apply(_parse_masses)
     mask = np.zeros(len(db5), dtype=bool)
     for m in masses:
         lo, hi = ppm_window(m, ppm)
-        mask |= db5[mass_col].astype(float).between(lo, hi)
+        mask |= mass_lists.apply(lambda vals: any(lo <= v <= hi for v in vals)).to_numpy()
     sub = db5.loc[mask].copy()
     out = {}
     for _, row in sub.iterrows():
-        smiles = row.get(smiles_col, None)
-        fp = compute_morgan_fp_bits(smiles)
+        fp = None
+        if fingerprint_col:
+            fp = _decode_fingerprint(row.get(fingerprint_col))
+        if fp is None and smiles_col:
+            fp = compute_morgan_fp_bits(row.get(smiles_col, None))
         if fp is None:
             continue
+
+        if fp_filter_idx:
+            if max(fp_filter_idx) >= len(fp):
+                continue
+            fp = [fp[i] for i in fp_filter_idx]
+
+        if selected_fp_idx:
+            if max(selected_fp_idx) >= len(fp):
+                continue
+            fp = [fp[i] for i in selected_fp_idx]
+
+        fp = [int(v) for v in fp]
         name = str(row.get(name_col, "")) if name_col else ""
         inchikey = str(row.get(inchikey_col, "")) if inchikey_col else ""
         formula = str(row.get(formula_col, "")) if formula_col else ""

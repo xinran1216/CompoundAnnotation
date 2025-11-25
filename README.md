@@ -7,8 +7,10 @@ Run **one testing set at a time**
 pip install -e .  # installs deps, but you can also just `pip install -r requirements.txt`
 
 # from repo root
-python -m fp_runner.main       --model /path/to/model.h5       --bins-performance-pkl saved_bins_performance_positive.p       --f1-per-fp-pkl f1_scores_per_fingerprint_4606_positive.p       --db5-csv DB5_v1.2_new.csv       --test-pkl /path/to/casmi_remove_01_2010_4606_pos.p       --sirius-tsv /path/to/sirius.tsv       --ion-mode positive       --ppm 5       --top-bins 500       --out-dir runs/out
+python -m fp_runner.main       --model /path/to/model.h5       --bins-performance-pkl saved_bins_performance_positive.pkl       --f1-per-fp-pkl f1_scores_per_fingerprint_4606_positive.pkl       --db5-csv DB5_v1.2_new.csv       --test-pkl /path/to/casmi_remove_01_2010_4606_pos.pkl       --sirius-tsv /path/to/sirius.tsv       --ion-mode positive       --ppm 5       --top-bins 500       --out-dir runs/out
 ```
+
+> Include `--fp-filter-pkl fp_filtered_4606.pkl` if you want DB5 candidate fingerprints filtered exactly like the notebook pipeline before Tanimoto scoring.
 
 > If no sirius-tsv is provided, scoring uses Tanimoto only.
 

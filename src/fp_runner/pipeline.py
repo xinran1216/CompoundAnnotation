@@ -3,6 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 from tabulate import tabulate
+import pickle
 
 from .features import select_bins, select_fp_indices
 from .model import load_keras_model
@@ -66,6 +67,7 @@ def run_year(
     ion_mode: str,
     ppm: float,
     out_dir: str,
+    fp_filter_pkl: Optional[str] = None,
     top_bins: int = 500,
     challenge_id_col_guess: Tuple[str, ...] = ("ChallengeName", "Challenge", "id", "ID"),
     precursor_col_guess: Tuple[str, ...] = ("PRECURSOR_MZ", "precursor_mz", "precursorMz"),
@@ -77,6 +79,11 @@ def run_year(
     bins = select_bins(bins_perf_pkl, top_n=top_bins)
     fp_idx = select_fp_indices(f1_per_fp_pkl, thresh=0.85)
     model = load_keras_model(model_path)
+
+    fp_filter_idx = None
+    if fp_filter_pkl:
+        with open(fp_filter_pkl, "rb") as f:
+            fp_filter_idx = list(pickle.load(f))
 
     # Normalize Sirius scores per challenge if present
     sirius_norm = None
@@ -102,7 +109,13 @@ def run_year(
 
         # Build candidate set around adduct-adjusted masses
         masses = calculate_adduct(float(row[prec_col]), ion_mode)
-        cand = retrieve_candidate_dict(db5, masses, ppm)
+        cand = retrieve_candidate_dict(
+            db5,
+            masses,
+            ppm,
+            selected_fp_idx=fp_idx,
+            fp_filter_idx=fp_filter_idx,
+        )
 
         # per-challenge sirius map
         sirius_map = {}
