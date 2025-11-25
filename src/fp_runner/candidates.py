@@ -86,8 +86,15 @@ def find_db5_columns(df: pd.DataFrame):
             break
     return mass_col, fingerprint_col, smiles_col, inchikey_col, name_col, formula_col
 
-def _decode_fingerprint(value) -> Optional[List[int]]:
-    """Decode a stored fingerprint (sparse list of 1 positions) into dense bits."""
+def _decode_fingerprint(value, *, target_len: Optional[int] = None) -> Optional[List[int]]:
+    """Decode a stored fingerprint (sparse list of 1 positions) into dense bits.
+
+    If ``target_len`` is provided, the returned list is padded with zeros to that
+    length so downstream index selection (fp filter + selected fp indices) can
+    mirror the notebook logic without discarding candidates whose stored
+    fingerprint is shorter than the requested indices.
+    """
+
     if value is None:
         return None
     try:
@@ -102,9 +109,10 @@ def _decode_fingerprint(value) -> Optional[List[int]]:
         return None
 
     max_idx = max(indices) if indices else -1
-    dense = [0] * (max_idx + 1 if max_idx >= 0 else 0)
+    length = max(max_idx + 1, target_len or 0)
+    dense = [0] * max(length, 0)
     for idx in indices:
-        if idx >= 0:
+        if idx >= 0 and idx < len(dense):
             dense[idx] = 1
     return dense
 
@@ -126,25 +134,37 @@ def retrieve_candidate_dict(
         lo, hi = ppm_window(m, ppm)
         mask |= mass_lists.apply(lambda vals: any(lo <= v <= hi for v in vals)).to_numpy()
     sub = db5.loc[mask].copy()
+    needed_len = -1
+    if fp_filter_idx:
+        needed_len = max(needed_len, max(fp_filter_idx))
+    if selected_fp_idx:
+        needed_len = max(needed_len, max(selected_fp_idx))
+    needed_len = (needed_len + 1) if needed_len >= 0 else None
+
+    def _pick_indices(fp_bits: List[int], indices: List[int]) -> List[int]:
+        if not indices:
+            return fp_bits
+        # Preserve ascending order of requested indices like the notebook loop
+        ordered = sorted(indices)
+        return [fp_bits[i] if i < len(fp_bits) else 0 for i in ordered]
+
     out = {}
     for _, row in sub.iterrows():
         fp = None
         if fingerprint_col:
-            fp = _decode_fingerprint(row.get(fingerprint_col))
+            fp = _decode_fingerprint(row.get(fingerprint_col), target_len=needed_len)
         if fp is None and smiles_col:
-            fp = compute_morgan_fp_bits(row.get(smiles_col, None))
+            fp = compute_morgan_fp_bits(
+                row.get(smiles_col, None), n_bits=needed_len or 2048
+            )
         if fp is None:
             continue
 
         if fp_filter_idx:
-            if max(fp_filter_idx) >= len(fp):
-                continue
-            fp = [fp[i] for i in fp_filter_idx]
+            fp = _pick_indices(fp, fp_filter_idx)
 
         if selected_fp_idx:
-            if max(selected_fp_idx) >= len(fp):
-                continue
-            fp = [fp[i] for i in selected_fp_idx]
+            fp = _pick_indices(fp, selected_fp_idx)
 
         fp = [int(v) for v in fp]
         name = str(row.get(name_col, "")) if name_col else ""
