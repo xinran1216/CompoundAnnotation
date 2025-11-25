@@ -10,6 +10,7 @@ def parse_args():
     p.add_argument("--model", required=True, help="Path to Keras model (.h5/.keras).")
     p.add_argument("--bins-performance-pkl", required=True, help="PKL with f1_score_val + bin_index")
     p.add_argument("--f1-per-fp-pkl", required=True, help="PKL with per-fingerprint F1 (keep >=0.85 by default)")
+    p.add_argument("--fp-filter-pkl", default=None, help="Optional PKL listing fingerprint indices to keep (e.g., fp_filtered_4606.pkl)")
     p.add_argument("--db5-csv", required=True, help="DB5 CSV file")
     p.add_argument("--test-pkl", required=True, help="Single CASMI dataset pickle to evaluate (any year)")
     p.add_argument("--sirius-tsv", action="append", default=None,
@@ -50,6 +51,7 @@ def main():
         test_df, db5, sirius_df,
         args.bins_performance_pkl, args.f1_per_fp_pkl, args.model,
         args.ion_mode, args.ppm, ds_out,
+        fp_filter_pkl=args.fp_filter_pkl,
         top_bins=args.top_bins,
     )
 
