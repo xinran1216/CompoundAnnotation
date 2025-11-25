@@ -1,4 +1,3 @@
-
 import os
 import argparse
 import pandas as pd
@@ -13,10 +12,11 @@ def parse_args():
     p.add_argument("--f1-per-fp-pkl", required=True, help="PKL with per-fingerprint F1 (keep >=0.85 by default)")
     p.add_argument("--db5-csv", required=True, help="DB5 CSV file")
     p.add_argument("--test-pkl", required=True, help="Single CASMI dataset pickle to evaluate (any year)")
-    p.add_argument("--sirius-tsv", action="append", default=None, help="Optional SIRIUS TSV(s). Repeat flag to pass multiple files.")
-    p.add_argument("--ion-mode", choices=["positive","negative"], default="positive")
+    p.add_argument("--sirius-tsv", action="append", default=None,
+                   help="Optional SIRIUS TSV(s). Repeat flag to pass multiple files.")
+    p.add_argument("--ion-mode", choices=["positive", "negative"], default="negative")
     p.add_argument("--ppm", type=float, default=5.0)
-    p.add_argument("--top-bins", type=int, default=500)  # kept for compatibility; inside pipeline we use 500
+    p.add_argument("--top-bins", type=int, default=500)
     p.add_argument("--out-dir", required=True, help="Output directory")
     return p.parse_args()
 
@@ -45,14 +45,15 @@ def main():
     ds_out = os.path.join(args.out_dir, ds_name)
     os.makedirs(ds_out, exist_ok=True)
 
-    # Run pipeline
+    # Run pipeline (now honors --top-bins)
     run_year(
         test_df, db5, sirius_df,
         args.bins_performance_pkl, args.f1_per_fp_pkl, args.model,
-        args.ion_mode, args.ppm, ds_out
+        args.ion_mode, args.ppm, ds_out,
+        top_bins=args.top_bins,
     )
 
-    print(f"✅ Done. Outputs in: {ds_out}")
+    print(f"Done. Outputs in: {ds_out}")
 
 if __name__ == "__main__":
     main()
