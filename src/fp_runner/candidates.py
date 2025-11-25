@@ -1,4 +1,3 @@
-
 from typing import Dict, Tuple, List
 import numpy as np
 import pandas as pd
@@ -20,36 +19,45 @@ def compute_morgan_fp_bits(smiles: str, radius=2, n_bits=2048):
 
 def find_db5_columns(df: pd.DataFrame):
     mass_col = None
-    for c in ["MonoisotopicMass","MONOISOTOPIC_MASS","ExactMass","EXACT_MASS","AverageMass"]:
+    for c in ["MonoisotopicMass", "MONOISOTOPIC_MASS", "ExactMass", "EXACT_MASS", "AverageMass"]:
         if c in df.columns:
-            mass_col = c; break
+            mass_col = c
+            break
     smiles_col = None
-    for c in ["CANONICAL_SMILES","canonical_smiles","SMILES"]:
+    for c in ["CANONICAL_SMILES", "canonical_smiles", "SMILES"]:
         if c in df.columns:
-            smiles_col = c; break
+            smiles_col = c
+            break
     inchikey_col = None
-    for c in ["InChIKey","InChIkey","inchikey"]:
+    for c in ["InChIKey", "InChIkey", "inchikey"]:
         if c in df.columns:
-            inchikey_col = c; break
+            inchikey_col = c
+            break
     name_col = None
-    for c in ["CompoundName","COMPOUND_NAME","name","Name"]:
+    for c in ["CompoundName", "COMPOUND_NAME", "name", "Name"]:
         if c in df.columns:
-            name_col = c; break
+            name_col = c
+            break
     formula_col = None
-    for c in ["Formula","molecularFormula","MOLECULAR_FORMULA"]:
+    for c in ["Formula", "molecularFormula", "MOLECULAR_FORMULA"]:
         if c in df.columns:
-            formula_col = c; break
+            formula_col = c
+            break
     return mass_col, smiles_col, inchikey_col, name_col, formula_col
 
-def retrieve_candidate_dict(db5: pd.DataFrame, masses: List[float], ppm: float) -> Dict[Tuple[str,str,str], List[int]]:
-    \"\"\"Return map: (CompoundName, InChIKey, Formula) -> fingerprint bits list\"\"\"
+def retrieve_candidate_dict(
+    db5: pd.DataFrame,
+    masses: List[float],
+    ppm: float
+) -> Dict[Tuple[str, str, str], List[int]]:
+    """Return map: (CompoundName, InChIKey, Formula) -> fingerprint bits list."""
     mass_col, smiles_col, inchikey_col, name_col, formula_col = find_db5_columns(db5)
     if mass_col is None or smiles_col is None:
         return {}
     mask = np.zeros(len(db5), dtype=bool)
     for m in masses:
         lo, hi = ppm_window(m, ppm)
-        mask |= (db5[mass_col].astype(float).between(lo, hi))
+        mask |= db5[mass_col].astype(float).between(lo, hi)
     sub = db5.loc[mask].copy()
     out = {}
     for _, row in sub.iterrows():
