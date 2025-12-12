@@ -153,6 +153,9 @@ def run_pipeline(
     top_bins: int,
     out_dir: str,
 ) -> str:
+    # ensure output dir
+    os.makedirs(out_dir, exist_ok=True)
+
     # 1) feature selection + model
     bins = select_bins(bins_perf_pkl, top_bins)
     sel_fp_idx = select_fp_indices(f1_pkl=f1_fp_pkl, thresh=fp_f1_thresh)
@@ -206,6 +209,7 @@ def run_pipeline(
     if prec_col is None:
         raise ValueError("Could not find precursor m/z column (e.g., 'precursor_mz').")
 
+    # DB5 columns
     mass_col = get_col(db5_df, ["monoisotopic_mass","exact_mass","MonoisotopicMass","ExactMass"])
     name_col = get_col(db5_df, ["name","Name","MassBank_Name"])
     inch_col = get_col(db5_df, ["InChIKey","InChIkey2D","inchikey","InChI Key"])
@@ -278,7 +282,7 @@ def run_pipeline(
         rows_sorted = sorted(rows, key=lambda x: float(x[3]), reverse=True)
 
         out_path = os.path.join(out_dir, f"{cname}_prediction.txt")
-        with open(out_path, "w") as f:
+        with open(out_path, "w", encoding="utf-8", newline="") as f:
             f.write(cname + "\n")
             if rows_sorted:
                 f.write(tabulate(rows_sorted, headers=["Compound Name","InChIKey","Formula","Tanimoto"]) + "\n")
@@ -298,5 +302,5 @@ def run_pipeline(
         })
 
     summary_path = os.path.join(out_dir, "summary.csv")
-    pd.DataFrame(results).to_csv(summary_path, index=False)
+    pd.DataFrame(results).to_csv(summary_path, index=False, encoding="utf-8", line_terminator="\n")
     return summary_path
