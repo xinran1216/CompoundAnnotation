@@ -56,13 +56,35 @@ def safe_pd_read_pickle(path):
         with open(path, "rb") as f:
             return _NumpyCompatUnpickler(f).load()
 
+def _first_existing_column(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
+    for c in candidates:
+        if c in df.columns:
+            return c
+    return None
+
 def select_bins(perf_pkl: str, top_n: int) -> List[int]:
+    """
+    Accepts performance files that may use any of these metrics:
+      f1_score_val, f1_micro_val, f1, f1_val
+    and a bin index column:
+      bin_index (required)
+    Sorts descending by the chosen metric and returns top-N bin indices.
+    """
     df = safe_pd_read_pickle(perf_pkl)
     if not isinstance(df, pd.DataFrame):
         df = pd.DataFrame(df)
-    if "f1_score_val" not in df.columns or "bin_index" not in df.columns:
-        raise ValueError("Performance PKL must contain columns: f1_score_val, bin_index")
-    df = df.sort_values("f1_score_val", ascending=False).head(top_n)
+
+    metric_col = _first_existing_column(
+        df,
+        ["f1_score_val", "f1_micro_val", "f1_val", "f1"]
+    )
+    if metric_col is None:
+        raise ValueError("Performance PKL must contain one of: f1_score_val, f1_micro_val, f1_val, f1")
+
+    if "bin_index" not in df.columns:
+        raise ValueError("Performance PKL must contain column: bin_index")
+
+    df = df.sort_values(metric_col, ascending=False).head(top_n)
     return df["bin_index"].astype(int).tolist()
 
 def select_fp_indices(f1_pkl: str, thresh: float) -> List[int]:
