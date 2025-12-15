@@ -153,7 +153,6 @@ def run_pipeline(
     top_bins: int,
     out_dir: str,
 ) -> str:
-    # ensure output dir
     os.makedirs(out_dir, exist_ok=True)
 
     # 1) feature selection + model
@@ -302,5 +301,5 @@ def run_pipeline(
         })
 
     summary_path = os.path.join(out_dir, "summary.csv")
-    pd.DataFrame(results).to_csv(summary_path, index=False, encoding="utf-8", line_terminator="\n")
+    pd.DataFrame(results).to_csv(summary_path, index=False, encoding="utf-8", lineterminator="\n")
     return summary_path
