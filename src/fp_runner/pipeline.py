@@ -94,13 +94,37 @@ def select_fp_indices(f1_pkl: str, thresh: float) -> List[int]:
     arr = np.asarray(arr, float)
     return np.where(arr >= float(thresh))[0].astype(int).tolist()
 
+
 def load_fp_filter(fp_filter_pkl: Optional[str]) -> Optional[List[int]]:
     if fp_filter_pkl is None:
         return None
     _install_numpy_aliases_and_shims()
+
     with open(fp_filter_pkl, "rb") as f:
-        idx = _NumpyCompatUnpickler(f).load()
-    return list(map(int, idx))
+        head = f.read(128)
+
+    is_csv = fp_filter_pkl.lower().endswith((".csv", ".tsv")) or head.startswith(b"Standard_InChIKey,")
+
+    if not is_csv:
+        with open(fp_filter_pkl, "rb") as f:
+            idx = _NumpyCompatUnpickler(f).load()
+        return list(map(int, idx))
+
+    cols = head.splitlines()[0].decode("utf-8", errors="ignore").split(",")
+    pick = next((c for c in ("idx", "index", "cid") if c in cols), None)
+
+    out: List[int] = []
+    offset = 0
+    for chunk in pd.read_csv(fp_filter_pkl, usecols=[pick] if pick else None, chunksize=200_000):
+        if pick:
+            out.extend(chunk[pick].astype("int64").tolist())
+        else:
+            n = len(chunk)
+            out.extend(range(offset, offset + n))
+            offset += n
+
+    return out
+
 
 def get_col(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
     for c in candidates:
