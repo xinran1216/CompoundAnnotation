@@ -117,13 +117,16 @@ def load_fp_filter(fp_filter_pkl: Optional[str]) -> Optional[List[int]]:
     offset = 0
     for chunk in pd.read_csv(fp_filter_pkl, usecols=[pick] if pick else None, chunksize=200_000):
         if pick:
-            out.extend(chunk[pick].astype("int64").tolist())
+            s = pd.to_numeric(chunk[pick], errors="coerce")
+            s = s.replace([np.inf, -np.inf], np.nan).dropna()
+            out.extend(s.astype("int64").tolist())
         else:
             n = len(chunk)
             out.extend(range(offset, offset + n))
             offset += n
 
     return out
+
 
 
 def get_col(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
