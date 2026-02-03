@@ -1,11 +1,59 @@
 import os, sys, pickle, ast
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Callable, Iterable, Iterator, Any
 
 import numpy as np
 import pandas as pd
 from tabulate import tabulate
 
 from .model import load_keras_model
+
+try:
+    from tqdm import tqdm  
+except Exception:  
+    tqdm = None
+
+
+def _call_progress(progress: Optional[Callable[[str], None]], message: str):
+    if progress is None:
+        print(message, file=sys.stderr, flush=True)
+    else:
+        try:
+            progress(message)
+        except Exception:
+            print(message, file=sys.stderr, flush=True)
+
+
+def _iter_with_progress(
+    iterable: Iterable[Any],
+    *,
+    total: Optional[int],
+    desc: str,
+    progress: Optional[Callable[[str], None]],
+    unit: str = "item",
+) -> Iterator[Any]:
+    if tqdm is not None and total is not None:
+        yield from tqdm(iterable, total=total, desc=desc, unit=unit)
+        return
+
+    if total is None:
+        for x in iterable:
+            yield x
+        return
+
+    total = int(total)
+    if total <= 0:
+        for x in iterable:
+            yield x
+        return
+
+    every = max(1, total // 50)
+    i = 0
+    for x in iterable:
+        i += 1
+        if i == 1 or i == total or (i % every == 0):
+            _call_progress(progress, f"{desc}: {i}/{total} ({int(round(100*i/total))}%)")
+        yield x
+
 
 def _install_numpy_aliases_and_shims():
     import numpy as _np
@@ -79,7 +127,7 @@ def select_bins(perf_pkl: str, top_n: int) -> List[int]:
         ["f1_score_val", "f1_micro_val", "f1_val", "f1"]
     )
     if metric_col is None:
-        raise ValueError("Performance PKL must contain one of: f1_score_val, f1_micro_val, f1_val, f1")
+        raise ValueError("Performance PKL must contain one of: f1_score_val, f1_micro_val, f1_micro_val, f1_val, f1")
 
     if "bin_index" not in df.columns:
         raise ValueError("Performance PKL must contain column: bin_index")
@@ -201,13 +249,22 @@ def run_pipeline(
     ppm: float,
     top_bins: int,
     out_dir: str,
+    progress: Optional[Callable[[str], None]] = None,   # <-- new
 ) -> str:
     os.makedirs(out_dir, exist_ok=True)
 
     # 1) feature selection + model
+    _call_progress(progress, "[1/6] Selecting top bins")
     bins = select_bins(bins_perf_pkl, top_bins)
+
+    _call_progress(progress, "[2/6] Selecting fingerprint indices (F1 threshold)")
     sel_fp_idx = select_fp_indices(f1_pkl=f1_fp_pkl, thresh=fp_f1_thresh)
+    n_sel = len(sel_fp_idx)
+
+    _call_progress(progress, "[3/6] Loading fingerprint filter (if provided)")
     fp_filter = load_fp_filter(fp_filter_pkl)
+
+    _call_progress(progress, "[4/6] Loading Keras model")
     model = load_keras_model(model_path)
 
     # 2) bin spectra
@@ -219,12 +276,15 @@ def run_pipeline(
         a = _coerce_vector(v)
         return [float(a[i]) for i in bins]
 
+    _call_progress(progress, "[5/6] Subsetting spectra to selected bins")
     casmi = casmi_df.copy()
-    casmi[spec_col] = casmi[spec_col].apply(_subspec)
+    n_rows = len(casmi)
+    casmi[spec_col] = [
+        _subspec(v)
+        for v in _iter_with_progress(casmi[spec_col].tolist(), total=n_rows, desc="Binning spectra", progress=progress, unit="row")
+    ]
 
     # 3) predict fingerprints
-    n_sel = len(sel_fp_idx)
-
     def _pred_fp(v):
         a = np.asarray(v, float).reshape(1, -1)
         p = model.predict(a, verbose=0)[0]
@@ -237,7 +297,11 @@ def run_pipeline(
             fp = p
         return np.round(fp).astype(int).tolist()
 
-    casmi["fp_pred"] = casmi[spec_col].apply(_pred_fp)
+    _call_progress(progress, "[6/6] Predicting fingerprints")
+    casmi["fp_pred"] = [
+        _pred_fp(v)
+        for v in _iter_with_progress(casmi[spec_col].tolist(), total=n_rows, desc="Predicting FPs", progress=progress, unit="row")
+    ]
 
     # 4) key columns
     chall_col   = get_col(casmi, [
@@ -268,7 +332,16 @@ def run_pipeline(
 
     # 5) loop over challenges
     results = []
-    for _, row in casmi.iterrows():
+    mode = str(ion_mode).lower()
+    row_iter = _iter_with_progress(
+        casmi.iterrows(),
+        total=len(casmi),
+        desc="Candidate retrieval",
+        progress=progress,
+        unit="challenge",
+    )
+
+    for _, row in row_iter:
         cname = str(row[chall_col])
         try:
             pmz = float(row[prec_col])
@@ -276,7 +349,6 @@ def run_pipeline(
             continue
 
         # adducts
-        mode = str(ion_mode).lower()
         if mode in ("positive","pos","p"):
             masses = [pmz - 1.007276, pmz - 18.033823, pmz - 22.989218]
         elif mode in ("negative","neg","n"):
@@ -351,4 +423,5 @@ def run_pipeline(
 
     summary_path = os.path.join(out_dir, "summary.csv")
     pd.DataFrame(results).to_csv(summary_path, index=False, encoding="utf-8", lineterminator="\n")
+    _call_progress(progress, f"Wrote summary: {summary_path}")
     return summary_path

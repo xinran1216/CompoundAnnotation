@@ -1,6 +1,50 @@
-import os, sys, argparse, pickle, json, ast
+import os, sys, argparse, pickle, json, ast, time
 import numpy as np
 import pandas as pd
+
+class ProgressPrinter:
+    """Prints a lightweight progress bar / progress report to stderr.
+
+    Designed to be dependency-free and safe in non-TTY environments.
+    """
+
+    def __init__(self, total_steps: int, *, prefix: str = "", width: int = 28, stream=None):
+        self.total_steps = max(1, int(total_steps))
+        self.prefix = prefix
+        self.width = max(10, int(width))
+        self.stream = stream if stream is not None else sys.stderr
+        self.start_ts = time.time()
+        self.current = 0
+
+    def update(self, step: int, message: str):
+        self.current = max(0, min(int(step), self.total_steps))
+        self._print(message)
+
+    def advance(self, message: str, n: int = 1):
+        self.current = max(0, min(self.current + int(n), self.total_steps))
+        self._print(message)
+
+    def note(self, message: str):
+        # Informational message without moving the main bar
+        elapsed = time.time() - self.start_ts
+        print(f"{self.prefix}{message}  (elapsed: {elapsed:.1f}s)", file=self.stream, flush=True)
+
+    def sub(self, message: str):
+        # Pipeline sub-progress lines
+        elapsed = time.time() - self.start_ts
+        print(f"{self.prefix}  ↳ {message}  (elapsed: {elapsed:.1f}s)", file=self.stream, flush=True)
+
+    def _print(self, message: str):
+        frac = self.current / float(self.total_steps)
+        filled = int(round(frac * self.width))
+        bar = "#" * filled + "-" * (self.width - filled)
+        pct = int(round(frac * 100))
+        elapsed = time.time() - self.start_ts
+        print(
+            f"{self.prefix}[{bar}] {pct:3d}% ({self.current}/{self.total_steps}) {message}  (elapsed: {elapsed:.1f}s)",
+            file=self.stream,
+            flush=True,
+        )
 
 def _install_numpy_aliases_and_shims():
     aliases = [
@@ -139,21 +183,35 @@ def parse_args():
 def main():
     args = parse_args()
 
+    # High-level progress through main.py
+    prog = ProgressPrinter(total_steps=6, prefix="MAIN ")
+    prog.update(0, "Starting")
+
+    prog.advance("Reading input table (test-pkl)")
     df = read_any_table(args.test_pkl)
     df = _to_dataframe(df)
 
+    prog.advance("Parsing / normalizing 'Spectrum Vector'")
     if "Spectrum Vector" in df.columns and len(df):
         if not isinstance(df["Spectrum Vector"].iloc[0], (list, tuple, np.ndarray)):
             df["Spectrum Vector"] = df["Spectrum Vector"].apply(parse_listlike)
 
+    prog.advance("Validating required columns")
     if "Spectrum Vector" not in df.columns:
-        raise ValueError("Input must contain 'Spectrum Vector' (list/array of floats).")
+        raise ValueError("Input must contain 'Spectrum Vector' (list/array of floats).\n"
+                         "If your file stores it as a string like '[1,2,3]', it will be parsed automatically.")
     if df["Spectrum Vector"].isna().any():
         bad = int(df["Spectrum Vector"].isna().sum())
         raise ValueError(f"{bad} rows in 'Spectrum Vector' are empty/unparseable after reading your file.")
 
+    prog.advance("Loading DB5 CSV and preparing output folder")
     db5_df = pd.read_csv(args.db5_csv, low_memory=False)
     os.makedirs(args.out_dir, exist_ok=True)
+
+    prog.advance("Running pipeline (this includes detailed progress)")
+    # Pipe pipeline updates as indented sub-lines
+    def _pipe_progress(msg: str):
+        prog.sub(msg)
 
     summary_csv = run_pipeline(
         casmi_df=df,
@@ -167,7 +225,10 @@ def main():
         ppm=args.ppm,
         top_bins=args.top_bins,
         out_dir=args.out_dir,
+        progress=_pipe_progress,   # <-- new
     )
+
+    prog.advance("Finished")
     print("Done. Summary:", summary_csv)
 
 if __name__ == "__main__":
