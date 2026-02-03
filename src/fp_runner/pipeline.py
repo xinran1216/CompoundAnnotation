@@ -376,7 +376,7 @@ def run_pipeline(
                     continue
 
                 full_fp = decode_fp_indices(idx_list, length=7293)
-
+                print("len(full_fp)=", len(full_fp), "max_filter=", max(fp_filter), "min_filter=", min(fp_filter))
                 base_fp = [full_fp[i] for i in fp_filter] if fp_filter is not None else full_fp
 
                 if n_sel > 0:
