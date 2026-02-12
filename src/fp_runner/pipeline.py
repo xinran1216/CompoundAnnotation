@@ -349,10 +349,14 @@ def run_pipeline(
             continue
 
         # adducts
+        # if mode in ("positive","pos","p"):
+        #     masses = [pmz - 1.007276, pmz - 18.033823, pmz - 22.989218]
+        # elif mode in ("negative","neg","n"):
+        #     masses = [pmz + 1.007276, pmz - 34.969402, pmz - 44.998201]
         if mode in ("positive","pos","p"):
-            masses = [pmz - 1.007276, pmz - 18.033823, pmz - 22.989218]
+            masses = [pmz - 1.007825035, pmz - 18.033826, pmz - 22.98976928]
         elif mode in ("negative","neg","n"):
-            masses = [pmz + 1.007276, pmz - 34.969402, pmz - 44.998201]
+            masses = [pmz + 1.007825035, pmz - 34.9688527, pmz - 44.997655]
         else:
             raise ValueError("ion_mode must be positive/negative.")
 
@@ -376,7 +380,7 @@ def run_pipeline(
                     continue
 
                 full_fp = decode_fp_indices(idx_list, length=7293)
-                print("len(full_fp)=", len(full_fp), "max_filter=", max(fp_filter), "min_filter=", min(fp_filter))
+                # print("len(full_fp)=", len(full_fp), "max_filter=", max(fp_filter), "min_filter=", min(fp_filter))
                 base_fp = [full_fp[i] for i in fp_filter] if fp_filter is not None else full_fp
 
                 if n_sel > 0:
